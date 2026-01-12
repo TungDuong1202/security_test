@@ -1,5 +1,8 @@
 package com.example.user.utils;
 
+import com.example.user.exception.SecurityConfigException;
+import com.example.user.exception.SecurityProcessException;
+
 import javax.crypto.*;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -9,181 +12,153 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Objects;
 
 /**
- * Tiện ích mã hóa đối xứng (Symmetric Encryption) sử dụng thuật toán AES.
+ * Class tiện ích hỗ trợ mã hóa đối xứng (Symmetric Encryption) sử dụng thuật toán AES.
  * <p>
  * Cấu hình bảo mật: <b>AES/GCM/NoPadding</b>
- * <ul>
- * <li><b>AES:</b> Advanced Encryption Standard (Chuẩn mã hóa nâng cao).</li>
- * <li><b>GCM (Galois/Counter Mode):</b> Chế độ hoạt động hiện đại, bảo mật cao hơn CBC.
- * Nó cung cấp cả tính bảo mật (Confidentiality) và tính toàn vẹn (Integrity).
- * Nghĩa là nếu dữ liệu bị hacker sửa đổi dù chỉ 1 bit, quá trình giải mã sẽ báo lỗi ngay.</li>
- * <li><b>NoPadding:</b> GCM hoạt động như stream cipher nên không cần padding như ECB/CBC.</li>
- * </ul>
  */
 public final class AesUtil {
 
     private static final String AES = "AES";
-
     private static final String AES_GCM = "AES/GCM/NoPadding";
-
-    private static final int AES_KEY_SIZE = 256;
-
     private static final int GCM_IV_LENGTH = 12;
-
     private static final int GCM_TAG_LENGTH = 128;
 
-    private AesUtil(){}
+    private AesUtil() {}
 
     /**
-     * Khôi phục {@link SecretKey} từ chuỗi Base64.
-     * <p>
-     * Thường dùng để load AES key từ file cấu hình hoặc biến môi trường.
+     * Khôi phục đối tượng {@link SecretKey} từ chuỗi Base64.
      *
-     * @param base64Key Chuỗi AES key dạng Base64 (sau khi decode phải đúng 16/24/32 bytes).
-     * @return {@link SecretKey} dùng cho AES.
-     *
-     * @throws SecurityInternalException
-     *         Nếu key không phải Base64 hợp lệ hoặc cấu hình key không đúng.
+     * @param base64Key Chuỗi AES Key dạng Base64.
+     * @return Đối tượng {@link SecretKey}.
+     * @throws SecurityConfigException Nếu chuỗi không phải Base64 hoặc có lỗi bất ngờ khác.
      */
     public static SecretKey loadKeyFromBase64(String base64Key) {
         try {
             byte[] decodedKey = Base64.getDecoder().decode(base64Key);
             return new SecretKeySpec(decodedKey, AES);
         } catch (IllegalArgumentException e) {
-            throw new SecurityInternalException("Invalid Base64 AES key", e);
+            throw new SecurityConfigException("Invalid Key Configuration: Input string is not valid Base64", e);
         } catch (Exception e) {
-            throw new SecurityInternalException("Unexpected load AES key error", e);
+            throw new SecurityConfigException("Unexpected Error when load Key AES", e);
         }
     }
 
     /**
-     * Mã hóa dữ liệu bằng AES/GCM.
-     * <p>
-     * Quy trình:
-     * <ol>
-     *   <li>Sinh IV ngẫu nhiên (12 bytes).</li>
-     *   <li>Khởi tạo Cipher với AES/GCM.</li>
-     *   <li>Mã hóa dữ liệu và sinh AuthTag.</li>
-     *   <li>Ghép IV vào đầu kết quả và encode Base64.</li>
-     * </ol>
+     * Mã hóa văn bản gốc (Encryption).
      *
-     * @param plainText Chuỗi dữ liệu gốc cần mã hóa.
+     * @param plainText Chuỗi văn bản gốc.
      * @param key       Khóa bí mật AES.
-     * @return Chuỗi Base64 chứa: IV + CipherText + AuthTag.
-     *
-     * @throws SecurityBadRequestException
-     *         Nếu dữ liệu đầu vào không hợp lệ.
-     * @throws SecurityInternalException
-     *         Nếu có lỗi cấu hình security hoặc môi trường không hỗ trợ AES/GCM.
+     * @return Chuỗi Base64 chứa [IV + CipherText].
+     * @throws SecurityConfigException Ném ra nếu có lỗi hệ thống hoặc cấu hình sai (Lỗi 500):
+     * <ul>
+     * <li><b>Lỗi hệ thống:</b> Nếu JVM không hỗ trợ thuật toán "AES/GCM/NoPadding" (NoSuchAlgorithmException).</li>
+     * <li><b>Key không hợp lệ:</b> Nếu Key bị null hoặc độ dài không đúng chuẩn (InvalidKeyException).</li>
+     * <li><b>IV không hợp lệ:</b> Nếu tham số khởi tạo IV bị lỗi (InvalidAlgorithmParameterException).</li>
+     * </ul>
+     * @throws SecurityProcessException Ném ra nếu quá trình mã hóa bị lỗi (Lỗi 400 - hiếm gặp khi Encrypt):
+     * <ul>
+     * <li>Nếu kích thước khối dữ liệu không hợp lệ (IllegalBlockSizeException).</li>
+     * <li>Nếu xảy ra lỗi padding (BadPaddingException).</li>
+     * </ul>
      */
     public static String encrypt(String plainText, SecretKey key) {
-        if (Objects.isNull(plainText)) {
-            throw new SecurityBadRequestException("Plain text must not be null or empty");
-        }
-        if (Objects.isNull(key)) {
-            throw new SecurityBadRequestException("SecretKey must not be null");
-        }
-        try {
-            // 1. Sinh IV
-            byte[] iv = new byte[GCM_IV_LENGTH];
-            SecureRandom random = new SecureRandom();
-            random.nextBytes(iv);
+        if (plainText == null) return null;
 
-            // 2. Init Cipher
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            new SecureRandom().nextBytes(iv);
+
             Cipher cipher = Cipher.getInstance(AES_GCM);
             GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
             cipher.init(Cipher.ENCRYPT_MODE, key, spec);
 
-            // 3. Encrypt
-            byte[] cipherText = cipher.doFinal(
-                    plainText.getBytes(StandardCharsets.UTF_8)
-            );
+            byte[] cipherText = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
 
-            // 4. Ghép IV + CipherText
             byte[] encrypted = new byte[iv.length + cipherText.length];
             System.arraycopy(iv, 0, encrypted, 0, iv.length);
             System.arraycopy(cipherText, 0, encrypted, iv.length, cipherText.length);
 
-            // 5. Encode Base64
             return Base64.getEncoder().encodeToString(encrypted);
 
-        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-            throw new SecurityInternalException("Invalid AES algorithm configuration", e);
-
         } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
-            throw new SecurityInternalException("AES/GCM algorithm not supported", e);
+            throw new SecurityConfigException("System Error: AES/GCM/NoPadding algorithm not available", e);
 
-        }  catch (Exception e) {
-            throw new SecurityInternalException("Unexpected encryption error", e);
+        } catch (InvalidKeyException e) {
+            throw new SecurityConfigException("Configuration Error: AES Key is null or invalid length", e);
+
+        } catch (InvalidAlgorithmParameterException e) {
+            throw new SecurityConfigException("Configuration Error: Invalid IV or Tag length parameters", e);
+
+        } catch (IllegalBlockSizeException | BadPaddingException e) {
+            throw new SecurityProcessException("Processing Error: Unable to encrypt data block", e);
+
+        } catch (Exception e) {
+            throw new SecurityConfigException("Unexpected Error: An unknown error occurred during the data encryption process.", e);
         }
     }
 
     /**
-     * Giải mã dữ liệu (Decryption).
-     * <p>
-     * Quy trình:
-     * 1. Giải mã Base64.
-     * 2. Tách 12 bytes đầu tiên ra làm IV.
-     * 3. Phần còn lại là CipherText.
-     * 4. Dùng Key + IV để giải mã.
+     * Giải mã chuỗi Base64 (Decryption).
      *
-     * @param encryptedBase64 Chuỗi Base64 nhận được (chứa IV + CipherText).
-     * @param key             Khóa bí mật AES (phải khớp với khóa lúc mã hóa).
-     * @return Chuỗi văn bản gốc (Plain text).
-     * @throws SecurityBadRequestException
-     *         Nếu dữ liệu không hợp lệ, sai định dạng, sai key hoặc dữ liệu bị sửa đổi.
-     * @throws SecurityInternalException
-     *         Nếu lỗi cấu hình security hoặc hệ thống không hỗ trợ AES/GCM.
+     * @param encryptedBase64 Chuỗi Base64 chứa IV và CipherText.
+     * @param key             Khóa bí mật AES.
+     * @return Chuỗi văn bản gốc.
+     * @throws SecurityProcessException Ném ra nếu dữ liệu đầu vào không hợp lệ hoặc bị từ chối (Lỗi Client/Data - 400):
+     * <ul>
+     * <li><b>Sai định dạng:</b> Nếu <code>encryptedBase64</code> không phải là chuỗi Base64 hợp lệ.</li>
+     * <li><b>Dữ liệu hỏng:</b> Nếu dữ liệu giải mã quá ngắn (thiếu IV).</li>
+     * <li><b>Sai Key:</b> Nếu Key giải mã không khớp với Key mã hóa.</li>
+     * <li><b>Bị giả mạo (Tampering):</b> Nếu dữ liệu đã bị bên thứ 3 sửa đổi (Integrity Check Failed).</li>
+     * </ul>
+     * @throws SecurityConfigException Ném ra nếu có lỗi cấu hình hệ thống (Lỗi Server - 500):
+     * <ul>
+     * <li><b>Lỗi hệ thống:</b> Nếu thuật toán giải mã không khả dụng.</li>
+     * <li><b>Cấu hình sai:</b> Nếu tham số Key hoặc IV không hợp lệ.</li>
+     * </ul>
      */
     public static String decrypt(String encryptedBase64, SecretKey key) {
+        if (encryptedBase64 == null) return null;
+
         try {
-            // 1. Decode Base64
             byte[] decoded = Base64.getDecoder().decode(encryptedBase64);
 
-            // 2. Validate độ dài (Phải lớn hơn IV)
             if (decoded.length <= GCM_IV_LENGTH) {
-                throw new SecurityBadRequestException("Encrypted data is invalid (Too short)");
+                throw new SecurityProcessException("Invalid encrypted data: Content too short, missing IV");
             }
 
-            // 3. Tách IV
             byte[] iv = new byte[GCM_IV_LENGTH];
             System.arraycopy(decoded, 0, iv, 0, iv.length);
 
-            // 4. Tách CipherText
             byte[] cipherText = new byte[decoded.length - GCM_IV_LENGTH];
             System.arraycopy(decoded, iv.length, cipherText, 0, cipherText.length);
 
-            // 5. Init Cipher
             Cipher cipher = Cipher.getInstance(AES_GCM);
             GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
             cipher.init(Cipher.DECRYPT_MODE, key, spec);
 
-            // 6. Decrypt
             byte[] plainText = cipher.doFinal(cipherText);
+
             return new String(plainText, StandardCharsets.UTF_8);
 
         } catch (IllegalArgumentException e) {
-            // Lỗi: Input không phải Base64
-            throw new SecurityBadRequestException("Invalid Base64 encrypted data", e);
+            throw new SecurityProcessException("Input data is not valid Base64", e);
 
-        } catch (BadPaddingException | IllegalBlockSizeException e) {
-            // Lỗi: Sai Key hoặc Dữ liệu bị sửa
-            throw new SecurityBadRequestException("Encrypted data is tampered or key is incorrect", e);
+        } catch (BadPaddingException e) {
+            throw new SecurityProcessException("Decryption failed: Integrity check failed (Wrong key or data tampered)", e);
 
-        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
-            // Lỗi: Key null, sai độ dài, hoặc IV lỗi -> Thường do code/cấu hình sai
-            throw new SecurityInternalException("Invalid security configuration", e);
+        } catch (IllegalBlockSizeException e) {
+            throw new SecurityProcessException("Data corruption: Invalid block size", e);
 
         } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
-            // Lỗi: Server không hỗ trợ thuật toán
-            throw new SecurityInternalException("AES/GCM algorithm not supported", e);
+            throw new SecurityConfigException("System Error: Decryption algorithm not available", e);
+
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+            throw new SecurityConfigException("Configuration Error: Invalid Key or IV parameters", e);
 
         } catch (Exception e) {
-            // Lỗi khác chưa lường trước
-            throw new SecurityInternalException("Unexpected decryption error", e);
+            throw new SecurityConfigException("Unexpected Error: An unknown error occurred while decoding the data.", e);
         }
     }
 }

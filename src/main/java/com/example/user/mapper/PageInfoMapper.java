@@ -1,4 +1,4 @@
-package com.example.user.utils;
+package com.example.user.mapper;
 
 import com.example.user.dto.response.ApiResponseEntity;
 import org.springframework.data.domain.Page;

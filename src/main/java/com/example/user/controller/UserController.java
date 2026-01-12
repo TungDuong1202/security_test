@@ -7,7 +7,7 @@ import com.example.user.dto.response.ApiResponseFactory;
 import com.example.user.dto.response.UserResponse;
 import com.example.user.exception.BadRequestException;
 import com.example.user.service.IUserService;
-import com.example.user.utils.PageInfoMapper;
+import com.example.user.mapper.PageInfoMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;

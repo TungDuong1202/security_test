@@ -4,6 +4,7 @@ import com.example.user.utils.AesUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.crypto.SecretKey;
@@ -21,21 +22,13 @@ public class AesConfig {
     @Value("${crypto.aes.key}")
     private String aesKeyBase64;
 
-    @Getter
-    private SecretKey aesSecretKey;
-
     /**
-     * Hàm khởi tạo chạy 1 lần duy nhất ngay sau khi Bean được tạo (Post-Construction).
-     * <p>
-     * Tại sao dùng @PostConstruct?
-     * <ul>
-     * <li>Để đảm bảo biến {@code aesKeyBase64} đã được Spring inject giá trị xong.</li>
-     * <li>Để thực hiện logic giải mã Base64 -> SecretKey một lần duy nhất lúc khởi động server.
-     * Các lần sau dùng lại {@code aesSecretKey} có sẵn, giúp tối ưu hiệu năng.</li>
-     * </ul>
+     * Thêm @Bean ở đây.
+     * Spring sẽ gọi hàm này, lấy kết quả (SecretKey) và bỏ vào ApplicationContext.
+     * Khi Converter (hoặc bất kỳ đâu) cần SecretKey, Spring sẽ lấy từ đây đưa sang.
      */
-    @PostConstruct
-    public void init() {
-        this.aesSecretKey = AesUtil.loadKeyFromBase64(aesKeyBase64);
+    @Bean
+    public SecretKey aesSecretKey() {
+        return AesUtil.loadKeyFromBase64(aesKeyBase64);
     }
 }
