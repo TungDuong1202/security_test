@@ -9,6 +9,7 @@ import com.example.user.enums.Gender;
 import com.example.user.enums.Role;
 import com.example.user.enums.UserStatus;
 import com.example.user.exception.BadRequestException;
+import com.example.user.exception.ConflictException;
 import com.example.user.exception.NotFoundException;
 import com.example.user.repository.IUserRepository;
 import com.example.user.service.IUserService;
@@ -72,7 +73,7 @@ public class UserServiceImp implements IUserService {
 
                 // Cập nhật thông tin profile mới đè lên cái cũ
                 updateUserProfile(user, request.getPhone(), request.getAddress(), request.getBirthday(), request.getGender());
-            } else throw new BadRequestException(EMAIL_EXIST);
+            } else throw new ConflictException(EMAIL_EXIST);
 
         } else {
             // Email chưa từng tồn tại -> Tạo mới hoàn toàn

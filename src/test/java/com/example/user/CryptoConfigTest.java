@@ -13,6 +13,7 @@ import org.springframework.test.context.TestPropertySource;
 import javax.crypto.SecretKey;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.Base64;
 
 @SpringBootTest // Load toàn bộ context của Spring để test Config
 @TestPropertySource(properties = {
@@ -42,7 +43,7 @@ import java.security.PublicKey;
 class CryptoConfigTest {
 
     @Autowired
-    private AesConfig aesCryptoConfig;
+    private SecretKey aesKey;
 
     @Autowired
     private PrivateKey privateKey; // Inject Bean PrivateKey từ RsaCryptoConfig
@@ -53,14 +54,14 @@ class CryptoConfigTest {
     @Test
     @DisplayName("Kiểm tra AES Config: Key không null và Mã hóa/Giải mã OK")
     void testAesConfig() {
-        // 1. Kiểm tra Key đã được load chưa
-        SecretKey key = aesCryptoConfig.getAesSecretKey();
-        Assertions.assertNotNull(key, "AES Key không được null (Lỗi Config hoặc @Value)");
+        String base64 = Base64.getEncoder()
+                .encodeToString(aesKey.getEncoded());
+        System.out.println("AES Key: " + base64);
 
         // 2. Test thử Mã hóa & Giải mã
         String originalText = "";
-        String encrypted = AesUtil.encrypt(originalText, key);
-        String decrypted = AesUtil.decrypt(encrypted, key);
+        String encrypted = AesUtil.encrypt(originalText, aesKey);
+        String decrypted = AesUtil.decrypt(encrypted, aesKey);
 
         System.out.println("AES Encrypted: " + encrypted);
         System.out.println("AES Decrypted: " + decrypted);
